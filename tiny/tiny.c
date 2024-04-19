@@ -204,3 +204,64 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
     return 0;
   }
 }
+
+void serve_static(int fd, char *filename, int filesize)
+{
+  int srcfd;
+  char *srcp;
+  char *filetype[MAXLINE];
+  char *buf[MAXBUF];
+
+  /*Send response headers to client*/
+  get_filetype(filename, filetype);
+  sprintf(buf, "HTTP/1.0 200 OK\r\n");
+  sprintf(buf, "%sServer : Tiny Web Server\r\n", buf);
+  sprintf(buf, "%sConnection : close\r\n", buf);
+  sprintf(buf, "%sContent-length : %d\r\n", buf, filesize);
+  sprintf(buf, "%sContent-type : %s\r\n\r\n", buf, filetype);
+
+  Rio_writen(fd, buf, strlen(buf));
+  printf("Response headers:\n");
+  printf("%s", buf);
+
+  /* Send response body to client */
+  srcfd = Open(filename, O_RDONLY, 0);
+
+  /* *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
+   *
+   * *addr : 매핑할 메모리의 시작주소, 0->NULL 시스템이 적절한 주소 자동으로 선택
+   * length : 매핑할 파일크기
+   * prot : 매핑된 메모리에 대한 보호 수준 설정 . PROT_READ - 읽기전용 / PROT_WRITE(쓰기가능) / PROT_EXEC(실행 가능)/PROT_NONE(접근불가)
+   * flags : 매핑 특성과 동작방식, MAP_PRIVATE - 쓰기 시 복사(copy on wirte)/ MAP_SHARED(변경사항 파일반영됨, 다른프로세스 공유됨)
+   * fd : 파일 디스크립터
+   * offset : 파일 내에서 매핑을 시작할곳, 0은 파일 시작부터 매핑을 시작함.
+   */
+  srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+
+  Close(srcfd);
+
+  Rio_writen(fd, srcp, filesize);
+
+  /* munmap(void *addr, size_t length);
+   * *addr : 해제하려는 메모리 매핑 시작주소
+   * length : 해제하려는 메모리 매핑 크기
+   */
+  Munmap(srcp, filesize);
+}
+
+/*
+ * get_filetype  - Derive file type from filename
+ */
+void get_filetype(char *filename, char *filetype)
+{
+  if (strstr(filename, ".html"))
+    strcpy(filetype, "text/html");
+  else if (strstr(filename, ".gif"))
+    strcpy(filetype, "image/gif");
+  else if (strstr(filename, ".png"))
+    strcpy(filetype, "image/png");
+  else if (strstr(filename, ".jpg"))
+    strcpy(filetype, "image/jpeg");
+  else
+    strcpy(filetype, "text/plain");
+}
