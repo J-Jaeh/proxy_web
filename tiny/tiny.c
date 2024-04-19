@@ -17,6 +17,11 @@ void serve_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg,
                  char *longmsg);
 
+/*
+ * argc = main 함수에 필요한 파라미터 갯수..
+ * argv = [0] -> 프로그램 이름?
+ *        [1] -> port 번호
+ */
 int main(int argc, char **argv)
 {
   /*
@@ -51,7 +56,7 @@ int main(int argc, char **argv)
     exit(1);
   }
 
-  listenfd = Open_listenfd(argv[1]);
+  listenfd = Open_listenfd(argv[1]); /*Open_listendfd -> open_listendfd->  포트번호 받고 listenfd 값 생성 반환*/
   while (1)
   {
     clientlen = sizeof(clientaddr);
@@ -60,7 +65,22 @@ int main(int argc, char **argv)
     Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE,
                 0);
     printf("Accepted connection from (%s, %s)\n", hostname, port);
-    doit(connfd);  // line:netp:tiny:doit
+    doit(connfd);  // line:netp:tiny:doit -> HTTP 트랜잭션처리
     Close(connfd); // line:netp:tiny:close
   }
+}
+
+void doit(int fd)
+{
+  int is_static;
+  struct stat sbuf;  /* 파일의 상태정보 저장하는 구조체 */
+  char buf[MAXLINE]; /* 클라에게 받은 HTTP 요청헤더를 저장하는 버퍼 */
+  char method[MAXLINE];
+  char uri[MAXLINE];
+  char version[MAXLINE];
+
+  char filename[MAXLINE]; /* 클라가 요청한 파일이름*/
+  char cgiargs[MAXLINE];  /* 동적컨텐츠이ㅣ경우, CGI 스크립트에 전달된 인자를 저장*/
+
+  rio_t rio; /*Robust I/O 패키지의 입출력 버퍼 구조체, 클라로부터 요청을 읽고,분석하고 응답을 보낼때 사용*/
 }
