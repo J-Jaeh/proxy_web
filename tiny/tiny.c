@@ -14,8 +14,9 @@ int parse_uri(char *uri, char *filename, char *cgiargs);
 void serve_static(int fd, char *filename, int filesize);
 void get_filetype(char *filename, char *filetype);
 void serve_dynamic(int fd, char *filename, char *cgiargs);
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg,
-                 char *longmsg);
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
+
+int isAuthority(struct stat sbuf);
 
 /*
  * argc = main 함수에 필요한 파라미터 갯수..
@@ -83,4 +84,52 @@ void doit(int fd)
   char cgiargs[MAXLINE];  /* 동적컨텐츠이ㅣ경우, CGI 스크립트에 전달된 인자를 저장*/
 
   rio_t rio; /*Robust I/O 패키지의 입출력 버퍼 구조체, 클라로부터 요청을 읽고,분석하고 응답을 보낼때 사용*/
+
+  /* Read request line and headers */
+  Rio_readinitb(&rio, fd);
+  Rio_readlineb(&rio, buf, MAXLINE);
+  printf("Request headers:\n");
+  printf("%s", buf);
+  sscanf(buf, "method : %s, uri : %s, version : %s", method, uri, version);
+
+  if (strcasecmp(method, "GET"))
+  {
+    clienterror(fd, method, "501", "Not implemented", "Tiny does not implement this method");
+    return;
+  }
+
+  /* URI 파싱 -> 정적 요청인지 아닌지 판단*/
+  is_static = parse_uri(uri, filename, cgiargs);
+  if (stat(filename, &sbuf) < 0)
+  {
+    clienterror(fd, filename, "403", "Not found", "Tiny couldn't read the file");
+    return;
+  }
+
+  /*Serve static content*/
+  if (is_static)
+  {
+    if (isAuthority(sbuf))
+    {
+      clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't read the file");
+      return;
+    }
+    serve_static(fd, filename, sbuf.st_mode);
+  }
+  else
+  {
+    if (isAuthority(sbuf))
+    {
+      clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't run the CGI program");
+      return;
+    }
+    serve_dynamic(fd, filename, cgiargs);
+  }
+}
+
+int isAuthority(struct stat sbuf)
+{
+  if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode))
+    return 1;
+  return 0;
 }
