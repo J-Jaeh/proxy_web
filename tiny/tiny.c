@@ -90,13 +90,15 @@ void doit(int fd)
   Rio_readlineb(&rio, buf, MAXLINE);
   printf("Request headers:\n");
   printf("%s", buf);
-  sscanf(buf, "method : %s, uri : %s, version : %s", method, uri, version);
+  sscanf(buf, "%s %s %s", method, uri, version);
 
   if (strcasecmp(method, "GET"))
   {
     clienterror(fd, method, "501", "Not implemented", "Tiny does not implement this method");
     return;
   }
+
+  read_requesthdrs(&rio);
 
   /* URI 파싱 -> 정적 요청인지 아닌지 판단*/
   is_static = parse_uri(uri, filename, cgiargs);
@@ -114,7 +116,7 @@ void doit(int fd)
       clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't read the file");
       return;
     }
-    serve_static(fd, filename, sbuf.st_mode);
+    serve_static(fd, filename, sbuf.st_size);
   }
   else
   {
@@ -140,23 +142,23 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
   char body[MAXLINE];
 
   /*HTTP response body*/
-  sprintf(body, "<html><title> Tiny Error</title>");
+  sprintf(body, "<html><head><link rel=\"shortcut icon\" href=\"#\"><title>Tiny Error</title></head></html>");
   sprintf(body, "%s<body bgcolor="
                 "ffffff"
                 ">\r\n",
           body);
   sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
   sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
-  sprintf(body, "%s<hr><em> The Tiny Web server</em?\r\n", body);
+  sprintf(body, "%s<hr><em> The Tiny Web server</em>\r\n", body);
 
   /*print the HTTP response*/
-  sprintf(buf, "HTTP/1.0 %s %s \r\n", errnum, shortmsg);
+  sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
   Rio_writen(fd, buf, strlen(buf));
 
   sprintf(buf, "Content-type : text/html\r\n");
   Rio_writen(fd, buf, strlen(buf));
 
-  sprinft(buf, "Content-lenght : %d \r\n\r\n", (int)strlen(body));
+  sprintf(buf, "Content-length : %d \r\n\r\n", (int)strlen(body));
   Rio_writen(fd, buf, strlen(buf));
 
   Rio_writen(fd, body, strlen(body));
@@ -171,7 +173,7 @@ void read_requesthdrs(rio_t *rp)
   while (strcmp(buf, "\r\n"))
   {
     Rio_readlineb(rp, buf, MAXLINE);
-    prinft("%s", buf);
+    printf("%s", buf);
   }
   return;
 }
@@ -184,7 +186,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
   {
     strcpy(cgiargs, "");
     strcpy(filename, ".");
-    strcpy(filename, uri);
+    strcat(filename, uri);
     if (uri[strlen(uri) - 1] == '/')
       strcat(filename, "home.html");
     return 1;
@@ -209,8 +211,8 @@ void serve_static(int fd, char *filename, int filesize)
 {
   int srcfd;
   char *srcp;
-  char *filetype[MAXLINE];
-  char *buf[MAXBUF];
+  char filetype[MAXLINE];
+  char buf[MAXBUF];
 
   /*Send response headers to client*/
   get_filetype(filename, filetype);
@@ -264,4 +266,26 @@ void get_filetype(char *filename, char *filetype)
     strcpy(filetype, "image/jpeg");
   else
     strcpy(filetype, "text/plain");
+}
+
+void serve_dynamic(int fd, char *filename, char *cgiargs)
+{
+  char buf[MAXLINE];
+  char *emptylist[] = {NULL};
+
+  /* Return first part of HTTP response */
+  sprintf(buf, "HTTP/1.0 200 OK\r\n");
+  Rio_writen(fd, buf, strlen(buf));
+  sprintf(buf, "Server : Tiny Web Server\r\n");
+  Rio_writen(fd, buf, strlen(buf));
+
+  if (Fork() == 0)
+  {
+    /* Child*/
+    /* Real server would set all CGI vars here */
+    setenv("QUERY_STRING", cgiargs, 1);
+    Dup2(fd, STDOUT_FILENO);              /* Redirect stdout to client */
+    Execve(filename, emptylist, environ); /* Run CGI program */
+  }
+  Wait(NULL); /* Parent waits for and reaps child*/
 }
