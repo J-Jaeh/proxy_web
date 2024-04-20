@@ -57,7 +57,7 @@ int main(int argc, char **argv)
     exit(1);
   }
 
-  listenfd = Open_listenfd(argv[1]); /*Open_listendfd -> open_listendfd->  포트번호 받고 listenfd 값 생성 반환*/
+  listenfd = Open_listenfd(argv[1]); /*Open_listendfd -> open_listendfd->  포트번호 받고 listenfd 값 생성 반환 - 서버의 프로세스 포트번호!*/
   while (1)
   {
     clientlen = sizeof(clientaddr);
@@ -65,7 +65,7 @@ int main(int argc, char **argv)
                     &clientlen); // line:netp:tiny:accept
     Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE,
                 0);
-    printf("Accepted connection from (%s, %s)\n", hostname, port);
+    printf("Accepted connection from (%s, %s) & server port : %s\n", hostname, port, argv[1]);
     doit(connfd);  // line:netp:tiny:doit -> HTTP 트랜잭션처리
     Close(connfd); // line:netp:tiny:close
   }
@@ -88,6 +88,7 @@ void doit(int fd)
   /* Read request line and headers */
   Rio_readinitb(&rio, fd);
   Rio_readlineb(&rio, buf, MAXLINE);
+  /*여기는 아직 CGI사용안하니 stdout해도 콘솔print */
   printf("Request headers:\n");
   printf("%s", buf);
   sscanf(buf, "%s %s %s", method, uri, version);
@@ -216,8 +217,9 @@ void serve_static(int fd, char *filename, int filesize)
 
   /*Send response headers to client*/
   get_filetype(filename, filetype);
+  /* strcat*/
   sprintf(buf, "HTTP/1.0 200 OK\r\n");
-  sprintf(buf, "%sServer : Tiny Web Server\r\n", buf);
+  sprintf(buf, "%sServer : Tiny Web Server-static\r\n", buf);
   sprintf(buf, "%sConnection : close\r\n", buf);
   sprintf(buf, "%sContent-length : %d\r\n", buf, filesize);
   sprintf(buf, "%sContent-type : %s\r\n\r\n", buf, filetype);
@@ -276,16 +278,27 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
   /* Return first part of HTTP response */
   sprintf(buf, "HTTP/1.0 200 OK\r\n");
   Rio_writen(fd, buf, strlen(buf));
-  sprintf(buf, "Server : Tiny Web Server\r\n");
+  sprintf(buf, "Server : Tiny Web Server-dynamic\r\n");
   Rio_writen(fd, buf, strlen(buf));
+
+  /*
+   * 슬립을 준다고해서 상태라인만 받았다고해서 바로 표시해주는게 아님, 상태라인 + http헤더 + http바디를 완성해야 로딩해줌!
+   */
+  sleep(5);
 
   if (Fork() == 0)
   {
     /* Child*/
     /* Real server would set all CGI vars here */
-    setenv("QUERY_STRING", cgiargs, 1);
-    Dup2(fd, STDOUT_FILENO);              /* Redirect stdout to client */
-    Execve(filename, emptylist, environ); /* Run CGI program */
+    setenv("QUERY_STRING", cgiargs, 1); /*cgiargs에는 1&2가 저장 */
+    Dup2(fd, STDOUT_FILENO);            /* Redirect stdout to client  그니까 stdout에 buffer에 입력되는게 -> fd로 리다이렉트?*/
+
+    /* Run CGI program
+     * filename : 실행파일 이름 여기서는 adder<= http://15.165.237.222:4000/cgi-bin/adder?1&2
+     * emptylist : 실행파일에 전달되는 argument를 지정... 현재는 아무것도 전달안함
+     * eniron : ? 새로운 환경변수 목록일 지정.. 새로 실행되는 프로그램이 현재 프로세스와 동일한 환경 설정을 상속받도록하기 위해 ..?
+     */
+    Execve(filename, emptylist, environ);
   }
   Wait(NULL); /* Parent waits for and reaps child*/
 }
