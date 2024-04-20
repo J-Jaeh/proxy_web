@@ -11,9 +11,9 @@
 void doit(int fd);
 void read_requesthdrs(rio_t *rp);
 int parse_uri(char *uri, char *filename, char *cgiargs);
-void serve_static(int fd, char *filename, int filesize);
+void serve_static(int fd, char *filename, int filesize, int flag);
 void get_filetype(char *filename, char *filetype);
-void serve_dynamic(int fd, char *filename, char *cgiargs);
+void serve_dynamic(int fd, char *filename, char *cgiargs, int flag);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
 int isAuthority(struct stat sbuf);
@@ -93,7 +93,7 @@ void doit(int fd)
   printf("%s", buf);
   sscanf(buf, "%s %s %s", method, uri, version);
 
-  if (strcasecmp(method, "GET"))
+  if ((strcasecmp(method, "GET")) && strcasecmp(method, "HEAD"))
   {
     clienterror(fd, method, "501", "Not implemented", "Tiny does not implement this method");
     return;
@@ -117,7 +117,10 @@ void doit(int fd)
       clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't read the file");
       return;
     }
-    serve_static(fd, filename, sbuf.st_size);
+    int flag = 0;
+    if (strcasecmp(method, "GET"))
+      flag = 1;
+    serve_static(fd, filename, sbuf.st_size, flag);
   }
   else
   {
@@ -126,7 +129,11 @@ void doit(int fd)
       clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't run the CGI program");
       return;
     }
-    serve_dynamic(fd, filename, cgiargs);
+    int flag = 0;
+    if (strcasecmp(method, "GET"))
+      flag = 1;
+    serve_dynamic(fd, filename, cgiargs, flag);
+    return;
   }
 }
 
@@ -208,7 +215,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
   }
 }
 
-void serve_static(int fd, char *filename, int filesize)
+void serve_static(int fd, char *filename, int filesize, int head_flag)
 {
   int srcfd;
   char *srcp;
@@ -225,6 +232,8 @@ void serve_static(int fd, char *filename, int filesize)
   sprintf(buf, "%sContent-type : %s\r\n\r\n", buf, filetype);
 
   Rio_writen(fd, buf, strlen(buf));
+  if (head_flag)
+    return;
   printf("Response headers:\n");
   printf("%s", buf);
 
@@ -241,7 +250,7 @@ void serve_static(int fd, char *filename, int filesize)
    * offset : 파일 내에서 매핑을 시작할곳, 0은 파일 시작부터 매핑을 시작함.
    */
   // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
-  srcp = (char *)malloc(filesize);
+  srcp = (char *)malloc(filesize * sizeof(char));
 
   Rio_readn(srcfd, srcp, filesize);
   Close(srcfd);
@@ -282,7 +291,7 @@ void sigchld_handler(int signum)
     printf("자식 프로세스 죽음 %d 종료\n", pid);
 }
 
-void serve_dynamic(int fd, char *filename, char *cgiargs)
+void serve_dynamic(int fd, char *filename, char *cgiargs, int head_flag)
 {
   char buf[MAXLINE];
   char *emptylist[] = {NULL};
@@ -298,12 +307,14 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
   /*
    * 슬립을 준다고해서 상태라인만 받았다고해서 바로 표시해주는게 아님, 상태라인 + http헤더 + http바디를 완성해야 로딩해줌!
    */
-  sleep(5);
+  // sleep(5);
 
   if (Fork() == 0) // Fork 하면 자식 pid 리턴한다 ~
   {
     /* Child*/
     /* Real server would set all CGI vars here */
+    if (!head_flag)
+      setenv("REQUEST_METHOD", "GET", 1);
     setenv("QUERY_STRING", cgiargs, 1); /*cgiargs에는 1&2가 저장 */
     Dup2(fd, STDOUT_FILENO);            /* Redirect stdout to client  그니까 stdout에 buffer에 입력되는게 -> fd로 리다이렉트?*/
 

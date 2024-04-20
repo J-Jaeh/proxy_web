@@ -17,11 +17,11 @@ int main(void)
   /* Extract the two arguments */
   if ((buf = getenv("QUERY_STRING")) != NULL) /* serve_dynamic 함수에서 set_env에서 지정한 key값? 으로 가져옴 약간 map 구조인듯?*/
   {
-    p = strchr(buf, '&'); /* strchr-> pram 1 에 있는 문자열에서 pram2를 찾는 함수 */
-    *p = '\0';            /* 위에서 찾은 & 문자를 NULL 처리 -> 문자열의 끝 */
-    strcpy(arg1, buf);    /* buf 값을 arg1에 복사*/
-    strcpy(arg2, p + 1);  /* 두번째 인자값을 arg2에 복사(p는 &위치를 가리키고있었으니까+1)*/
-    n1 = atoi(arg1);      /* atoi 는 문자열을 숫자로 변경하는것*/
+    p = strchr(buf, '&');  /* strchr-> pram 1 에 있는 문자열에서 pram2를 찾는 함수 */
+    *p = '\0';             /* 위에서 찾은 & 문자를 NULL 처리 -> 문자열의 끝 */
+    strcpy(arg1, buf + 2); /* buf 값을 arg1에 복사*/
+    strcpy(arg2, p + 3);   /* 두번째 인자값을 arg2에 복사(p는 &위치를 가리키고있었으니까+1)*/
+    n1 = atoi(arg1);       /* atoi 는 문자열을 숫자로 변경하는것*/
     n2 = atoi(arg2);
   }
 
@@ -39,7 +39,9 @@ int main(void)
   printf("Connection : close\r\n");
   printf("Content-length: %d\r\n", (int)strlen(content));
   printf("Content-type:  text/html\r\n\r\n"); /* \r\n\r\n 헤더와 본문사이를 구분하기위한 약속*/
-  printf("%s", content);
+  char *str = getenv("REQUEST_METHOD");
+  if (strcasecmp(str, "GET"))
+    printf("%s", content);
   fflush(stdout); /* stdout 버퍼 비우기*/
 
   exit(0);
