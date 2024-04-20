@@ -240,17 +240,19 @@ void serve_static(int fd, char *filename, int filesize)
    * fd : 파일 디스크립터
    * offset : 파일 내에서 매핑을 시작할곳, 0은 파일 시작부터 매핑을 시작함.
    */
-  srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+  // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+  srcp = (char *)malloc(filesize);
 
+  Rio_readn(srcfd, srcp, filesize);
   Close(srcfd);
-
   Rio_writen(fd, srcp, filesize);
 
   /* munmap(void *addr, size_t length);
    * *addr : 해제하려는 메모리 매핑 시작주소
    * length : 해제하려는 메모리 매핑 크기
    */
-  Munmap(srcp, filesize);
+  // Munmap(srcp, filesize);
+  free(srcp);
 }
 
 /*
@@ -266,14 +268,26 @@ void get_filetype(char *filename, char *filetype)
     strcpy(filetype, "image/png");
   else if (strstr(filename, ".jpg"))
     strcpy(filetype, "image/jpeg");
+  else if (strstr(filename, ".mp4"))
+    strcpy(filetype, "image/mp4");
   else
     strcpy(filetype, "text/plain");
+}
+void sigchld_handler(int signum)
+{
+  pid_t pid;
+  int status;
+
+  while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+    printf("자식 프로세스 죽음 %d 종료\n", pid);
 }
 
 void serve_dynamic(int fd, char *filename, char *cgiargs)
 {
   char buf[MAXLINE];
   char *emptylist[] = {NULL};
+  pid_t pid;
+  signal(SIGCHLD, sigchld_handler);
 
   /* Return first part of HTTP response */
   sprintf(buf, "HTTP/1.0 200 OK\r\n");
@@ -286,7 +300,7 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
    */
   sleep(5);
 
-  if (Fork() == 0)
+  if (Fork() == 0) // Fork 하면 자식 pid 리턴한다 ~
   {
     /* Child*/
     /* Real server would set all CGI vars here */
@@ -300,5 +314,4 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
      */
     Execve(filename, emptylist, environ);
   }
-  Wait(NULL); /* Parent waits for and reaps child*/
 }
