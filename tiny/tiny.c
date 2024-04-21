@@ -313,8 +313,14 @@ void serve_dynamic(int fd, char *filename, char *cgiargs, int head_flag)
   {
     /* Child*/
     /* Real server would set all CGI vars here */
+    char method[5] = "GET";
     if (!head_flag)
-      setenv("REQUEST_METHOD", "GET", 1);
+      setenv("REQUEST_METHOD", method, 1);
+    else
+    {
+      strcpy(method, "HEAD");
+      setenv("REQUEST_METHOD", method, 1);
+    }
     setenv("QUERY_STRING", cgiargs, 1); /*cgiargs에는 1&2가 저장 */
     Dup2(fd, STDOUT_FILENO);            /* Redirect stdout to client  그니까 stdout에 buffer에 입력되는게 -> fd로 리다이렉트?*/
 
