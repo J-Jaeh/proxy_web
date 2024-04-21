@@ -45,6 +45,6 @@ int main(void)
     printf("%s", content);
   fflush(stdout); /* stdout 버퍼 비우기*/
 
-  exit(0);
+  // exit(0);
 }
 /* $end adder */
