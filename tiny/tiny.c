@@ -317,7 +317,7 @@ void serve_dynamic(int fd, char *filename, char *cgiargs, int head_flag)
   /*
    * 슬립을 준다고해서 상태라인만 받았다고해서 바로 표시해주는게 아님, 상태라인 + http헤더 + http바디를 완성해야 로딩해줌!
    */
-  sleep(5);
+  // sleep(5);
 
   if (Fork() == 0) // Fork 하면 자식 pid 리턴한다 ~
   {
