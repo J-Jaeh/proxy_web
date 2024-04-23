@@ -1,38 +1,41 @@
 #include "csapp.h"
 
 void echo(int);
-
-void sigchld_handler(int sig)
-{
-    while (waitpid(-1, 0, WNOHANG) > 0)
-        ;
-    return;
-}
+void command(void);
 
 int main(int argc, char **argv)
 {
     int listendfd, connfd;
-    socklen_t clientlen = sizeof(struct sockaddr_in);
-    struct sockaddr_in clientaddr;
+    socklen_t clientlen;
+    struct sockaddr_storage clientaddr;
+    fd_set read_set, ready_set;
 
     if (argc != 2)
     {
         fprintf(stderr, "usage: %s <port>\n", argv[0]);
         exit(0);
     }
-    Signal(SIGCHLD, sigchld_handler);
-    listendfd = Open_listenfd(atoi(argv[1]););
+
+    listendfd = Open_listenfd(argv[1]);
+
+    FD_ZERO(&read_set);              /* clear read set */
+    FD_SET(STDIN_FILENO, &read_set); /* add stdin to read set*/
+    FD_SET(listendfd, &read_set);    /* add listenfd to read set*/
+
     while (1)
     {
-        connfd = Accept(listendfd, (SA *)&clientaddr, &clientlen);
-        if (Fork() == 0)
+        ready_set = read_set;
+        Select(listendfd + 1, &ready_set, NULL, NULL, NULL);
+        if (FD_ISSET(STDIN_FILENO, &ready_set))
+            command(); /*read command line from stdin*/
+
+        if (FD_ISSET(listendfd, &ready_set))
         {
-            Close(listendfd); // -> 자식은 듣기 소켓 꺼도됨 !?
-            echo(connfd);
+            clientlen = sizeof(struct sockaddr_storage);
+            connfd = Accept(listendfd, (SA *)&clientaddr, &clientlen);
+            echo(connfd); /* Echo client input until EOF*/
             Close(connfd);
-            exit(0);
         }
-        Close(connfd);
     }
 }
 void echo(int connfd)
@@ -47,4 +50,13 @@ void echo(int connfd)
         printf("server received %d bytes\n", (int)n);
         Rio_writen(connfd, buf, n);
     }
+}
+
+void command(void)
+{
+    char buf[MAXLINE];
+    if (!Fgets(buf, MAXLINE, stdin))
+        exit(0);
+
+    printf("%s", buf); /* Process the input command*/
 }
