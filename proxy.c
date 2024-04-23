@@ -33,8 +33,9 @@ void *thread(void *);
 cache_node *init_list();
 int add_first_node(struct cache_node *head, char *uri, char *cache_buff);
 int node_len(struct cache_node *head);
-void delete_node(struct cache_node **head, int index);
 cache_node *find_node_uri(struct cache_node *head, char *find_uri);
+int delete_node(struct cache_node **head, int index);
+int find_delete_node_index(cache_node *head);
 
 int main(int argc, char **argv)
 {
@@ -111,7 +112,9 @@ void proxy_to_server(int client_fd)
 
   if ((cache = find_node_uri(root, request_uri)) != NULL) // 캐시 히트인경우
   {
-    printf(" 캐시히트 : %s", cache->uri);
+    printf("캐시히트 : %s\n", cache->uri);
+    printf("캐시히트 횟수: %d\n", cache->count);
+    printf("current_cache_size = %d\n", current_cache_size);
     Rio_writen(client_fd, cache->cache_buff, strlen(cache->cache_buff));
     cache->count = (cache->count) + 1;
     return;
@@ -151,8 +154,12 @@ void proxy_to_server(int client_fd)
     while (current_cache_size + temp_cache_size <= MAX_OBJECT_SIZE)
     {
       /// 캐시삭제를하는데 조회해서 가장 카운트가 적은 캐쉬 노드를 삭제.
+      int target = find_delete_node_index(root);
+      int del_size = delete_node(root, target);
+      current_cache_size -= del_size;
     }
   }
+  printf("current_cache_size = %d\n", current_cache_size);
   Close(server_fd);
 }
 
@@ -228,20 +235,21 @@ int add_first_node(struct cache_node *head, char *uri, char *cache_buff)
   return strlen(cache_buff);
 }
 
-void delete_node(cache_node **head, int index)
+int delete_node(cache_node **head, int index)
 {
   int list_len = node_len(*head);
   if ((*head)->next == NULL)
-    return;
+    return NULL;
   else if (index < 0 || index > list_len)
-    return;
+    return NULL;
 
   if (index == 0)
   {
     struct cache_node *temp = *head;
+    int size = strlen((*head)->next->cache_buff);
     *head = (*head)->next;
     free(temp);
-    return;
+    return size;
   }
 
   struct cache_node *pre = *head;
@@ -255,12 +263,13 @@ void delete_node(cache_node **head, int index)
   struct cache_node *target_node = pre->next;
 
   if (target_node == NULL)
-    return;
+    return NULL;
 
   pre->next = target_node->next;
   target_node->next = NULL;
+  int size = strlen(target_node->cache_buff);
   free(target_node);
-  target_node == NULL;
+  return size;
 }
 
 int node_len(cache_node *head)
@@ -277,6 +286,29 @@ int node_len(cache_node *head)
   }
 
   return count;
+}
+
+int find_delete_node_index(cache_node *head)
+{
+  if (head->next == NULL)
+    return;
+
+  int min = head->next->count;
+  int c = 0;
+  int index = 0;
+
+  cache_node *curent = head;
+  while (curent->next != NULL)
+  {
+    if (curent->count < min)
+    {
+      index = c;
+      min = curent->count;
+      curent = curent->next;
+    }
+    c++;
+  }
+  return index;
 }
 
 cache_node *find_node_uri(cache_node *head, char *find_uri)
