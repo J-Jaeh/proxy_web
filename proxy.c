@@ -16,30 +16,25 @@ typedef struct cache_node
   char uri[MAXLINE];
   char cache_buff[MAX_OBJECT_SIZE];
   int count;
+  int len;
 } cache_node;
 
 int current_cache_size = 0;
 struct cache_node *root;
-
-// /* You won't lose style points for including this long line in your code */
-// static const char *user_agent_hdr =
-//     "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 "
-//     "Firefox/10.0.3\r\n";
 
 // -- 함수들 -- //
 int parse_uri(char *uri, char *hostname, char *path, char *port);
 void proxy_to_server(int server_fd);
 void *thread(void *);
 cache_node *init_list();
-int add_first_node(struct cache_node *head, char *uri, char *cache_buff);
+int add_first_node(struct cache_node *head, char *uri, char *cache_buff, int len);
 int node_len(struct cache_node *head);
 cache_node *find_node_uri(struct cache_node *head, char *find_uri);
-int delete_node(struct cache_node **head, int index);
+int delete_node(struct cache_node *head, int index);
 int find_delete_node_index(cache_node *head);
 
 int main(int argc, char **argv)
 {
-  // printf("%s", user_agent_hdr);
   int listenfd, *connfdp, serverfd;
   char hostname[MAXLINE], port[MAXLINE];
   socklen_t clientlen;
@@ -85,7 +80,6 @@ void proxy_to_server(int client_fd)
   char response_buf[MAX_CACHE_SIZE];
 
   /* 캐시 */
-  char temp_cache_buff[MAX_CACHE_SIZE];
   int temp_cache_size = 0;
   cache_node *cache;
 
@@ -112,10 +106,14 @@ void proxy_to_server(int client_fd)
 
   if ((cache = find_node_uri(root, request_uri)) != NULL) // 캐시 히트인경우
   {
+    printf("\n");
     printf("캐시히트 : %s\n", cache->uri);
     printf("캐시히트 횟수: %d\n", cache->count);
+    printf("캐시버퍼 사이즈: %d\n", cache->len);
     printf("current_cache_size = %d\n", current_cache_size);
-    Rio_writen(client_fd, cache->cache_buff, strlen(cache->cache_buff));
+    printf("\n");
+
+    Rio_writen(client_fd, cache->cache_buff, cache->len);
     cache->count = (cache->count) + 1;
     return;
   }
@@ -123,7 +121,7 @@ void proxy_to_server(int client_fd)
   server_fd = Open_clientfd(server_IP, server_port);
 
   snprintf(request_buf, MAXLINE, "%s %s HTTP/1.0\r\n:", client_method, request_uri);
-  printf("request_buf : %s", request_buf);
+  printf("request_line : %s \n\n", request_buf);
   Rio_writen(server_fd, request_buf, strlen(request_buf));
   while (strcmp(request_buf, "\r\n"))
   {
@@ -137,27 +135,29 @@ void proxy_to_server(int client_fd)
   // 일단 서버로 응답요청을 했다는것은... 캐시에 없을경우임
   // 이경우 나는 받은 캐시사이즈랑 현재 캐시 사이즈랑 비교해서 -> 현재 캐시 사이즈가 더 크다면
   int n;
-  if ((n = Rio_readn(server_fd, response_buf, MAX_CACHE_SIZE)) > 0)
+  int total_bytes = 0;
+  while ((n = Rio_readn(server_fd, response_buf, MAX_CACHE_SIZE)) > 0)
   {
     Rio_writen(client_fd, response_buf, n);
-    temp_cache_size = n;
+    temp_cache_size += n;
+    total_bytes += n;
   }
-  printf("temp_cache_size : %d\n", temp_cache_size);
+
+  printf("total_bytes: %d\n", total_bytes);
 
   // 만족하면 더하면됨 어디에 ? 헤드에...일단 쓰기 lock거는건 나중에 구현
   if (current_cache_size + temp_cache_size <= MAX_OBJECT_SIZE)
   {
-    current_cache_size += add_first_node(root, request_uri, response_buf);
+    current_cache_size += add_first_node(root, request_uri, response_buf, total_bytes);
   }
-  else
+  else if (temp_cache_size <= MAX_OBJECT_SIZE)
   {
-    while (current_cache_size + temp_cache_size <= MAX_OBJECT_SIZE)
+    do
     {
-      /// 캐시삭제를하는데 조회해서 가장 카운트가 적은 캐쉬 노드를 삭제.
       int target = find_delete_node_index(root);
       int del_size = delete_node(root, target);
       current_cache_size -= del_size;
-    }
+    } while (current_cache_size + temp_cache_size > MAX_OBJECT_SIZE);
   }
   printf("current_cache_size = %d\n", current_cache_size);
   Close(server_fd);
@@ -165,8 +165,6 @@ void proxy_to_server(int client_fd)
 
 int parse_uri(char *uri, char *hostname, char *path, char *port)
 {
-  printf("%s\n", uri);
-
   char *ptr = uri;
 
   if (*ptr == '/')
@@ -221,38 +219,38 @@ struct cache_node *init_list()
 }
 
 // 새로운 캐시를 넣는다.
-int add_first_node(struct cache_node *head, char *uri, char *cache_buff)
+int add_first_node(struct cache_node *head, char *uri, char *cache_buff, int len)
 {
-  printf(" uri 정체가뭐냐 %s\n", uri);
+  printf("\n캐시 저장 uri key : %s\n", uri);
   struct cache_node *newNode = (struct cache_node *)malloc(sizeof(struct cache_node));
   newNode->next = head->next;
   strcpy(newNode->uri, uri);
-  memcpy(newNode->cache_buff, cache_buff, strlen(cache_buff) + 1);
+  memcpy(newNode->cache_buff, cache_buff, MAX_OBJECT_SIZE);
   newNode->count = 0;
+  newNode->len = len;
 
   head->next = newNode;
-  printf("노드에 버퍼넣었음, uri= %s , buff= %s \n", uri, cache_buff);
-  return strlen(cache_buff);
+  return len;
 }
 
-int delete_node(cache_node **head, int index)
+int delete_node(cache_node *head, int index)
 {
-  int list_len = node_len(*head);
-  if ((*head)->next == NULL)
+  int list_len = node_len(head);
+  if ((head)->next == NULL)
     return NULL;
   else if (index < 0 || index > list_len)
     return NULL;
 
   if (index == 0)
   {
-    struct cache_node *temp = *head;
-    int size = strlen((*head)->next->cache_buff);
-    *head = (*head)->next;
+    struct cache_node *temp = head;
+    int size = strlen(head->next->cache_buff);
+    head = head->next;
     free(temp);
     return size;
   }
 
-  struct cache_node *pre = *head;
+  struct cache_node *pre = head;
 
   int i = 0;
   while (i < index - 1)
@@ -326,7 +324,7 @@ cache_node *find_node_uri(cache_node *head, char *find_uri)
   }
   else
   {
-    printf("해당하는 데이터를 갖는 노드를 찾을 수 없습니다\n");
+    printf("캐시 미스\n");
     return NULL;
   }
 }
