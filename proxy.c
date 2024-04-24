@@ -27,12 +27,15 @@ volatile int lock = 0;
 int parse_uri(char *uri, char *hostname, char *path, char *port);
 void proxy_to_server(int server_fd);
 void *thread(void *);
+
 cache_node *init_list();
 int add_first_node(struct cache_node *head, char *uri, char *cache_buff, int len);
 int node_len(struct cache_node *head);
 cache_node *find_node_uri(struct cache_node *head, char *find_uri);
 int delete_node(struct cache_node *head, int index);
 int find_delete_node_index(cache_node *head);
+
+void cache_hit(int client_fd, cache_node *cache);
 
 int main(int argc, char **argv)
 {
@@ -107,15 +110,7 @@ void proxy_to_server(int client_fd)
 
   if ((cache = find_node_uri(root, request_uri)) != NULL) // 캐시 히트인경우
   {
-    printf("\n");
-    printf("캐시히트 : %s\n", cache->uri);
-    printf("캐시히트 횟수: %d\n", cache->count);
-    printf("캐시버퍼 사이즈: %d\n", cache->len);
-    printf("current_cache_size = %d\n", current_cache_size);
-    printf("\n");
-
-    Rio_writen(client_fd, cache->cache_buff, cache->len);
-    cache->count = (cache->count) + 1;
+    cache_hit(client_fd, cache);
     return;
   }
 
@@ -328,4 +323,17 @@ cache_node *find_node_uri(cache_node *head, char *find_uri)
     printf("캐시 미스\n");
     return NULL;
   }
+}
+
+void cache_hit(int client_fd, cache_node *cache)
+{
+  printf("\n");
+  printf("캐시히트 : %s\n", cache->uri);
+  printf("캐시히트 횟수: %d\n", cache->count);
+  printf("캐시버퍼 사이즈: %d\n", cache->len);
+  printf("current_cache_size = %d\n", current_cache_size);
+  printf("\n");
+
+  Rio_writen(client_fd, cache->cache_buff, cache->len);
+  cache->count = (cache->count) + 1;
 }
