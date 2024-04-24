@@ -36,6 +36,9 @@ int delete_node(struct cache_node *head, int index);
 int find_delete_node_index(cache_node *head);
 
 void cache_hit(int client_fd, cache_node *cache);
+void wirte_cache(int temp_cache_size, char *request_uri, char *response_buf);
+void splinlock_lock();
+void splinlock_unlock();
 
 int main(int argc, char **argv)
 {
@@ -92,15 +95,13 @@ void proxy_to_server(int client_fd)
 
   sscanf(client_buf, "%s %s %s", client_method, request, client_version);
 
-  // printf("client_buf %s\n", client_buf);
-  // printf("request %s\n", request);
-
   if (strstr(request, "favicon"))
   {
     printf("Tiny couldn't find the favicon.");
     return;
   }
 
+  // 요청 파싱
   if (parse_uri(request, server_IP, request_uri, server_port))
   {
     printf("Failed to parse URI\n");
@@ -108,14 +109,15 @@ void proxy_to_server(int client_fd)
   }
   printf("ip : %s \nport : %s \nrequest_uri : %s\n", server_IP, server_port, request_uri);
 
-  if ((cache = find_node_uri(root, request_uri)) != NULL) // 캐시 히트인경우
+  // 캐시 히트인경우
+  if ((cache = find_node_uri(root, request_uri)) != NULL)
   {
     cache_hit(client_fd, cache);
     return;
   }
 
+  // --- 캐시 미스 날 경우 서버로 요청 + 캐시버퍼에 쓰기할때는 spin lock 걸어서 한명만 쓸수있게--- //
   server_fd = Open_clientfd(server_IP, server_port);
-
   snprintf(request_buf, MAXLINE, "%s %s HTTP/1.0\r\n:", client_method, request_uri);
   printf("request_line : %s \n\n", request_buf);
   Rio_writen(server_fd, request_buf, strlen(request_buf));
@@ -125,37 +127,17 @@ void proxy_to_server(int client_fd)
     Rio_writen(server_fd, request_buf, strlen(request_buf));
   }
 
-  // --- 캐시 미스 날 경우 서버로 요청 + spin lock 걸어서 한명만 쓸수있게--- //
   int n;
   int total_bytes = 0;
   while ((n = Rio_readn(server_fd, response_buf, MAX_CACHE_SIZE)) > 0)
   {
     Rio_writen(client_fd, response_buf, n);
     temp_cache_size += n;
-    total_bytes += n;
   }
-  printf("total_bytes: %d\n", total_bytes);
+  printf("total_bytes: %d\n", temp_cache_size);
 
   // 스핀락을 걸어서 쓰기작업 쓰레드 하나만
-  while (__sync_lock_test_and_set(&lock, 1) == 1)
-    ;
-  if (current_cache_size + temp_cache_size <= MAX_OBJECT_SIZE)
-  {
-    current_cache_size += add_first_node(root, request_uri, response_buf, total_bytes);
-  }
-  else if (temp_cache_size <= MAX_OBJECT_SIZE)
-  {
-    do
-    {
-      int target = find_delete_node_index(root);
-      int del_size = delete_node(root, target);
-      current_cache_size -= del_size;
-    } while (current_cache_size + temp_cache_size > MAX_OBJECT_SIZE);
-  }
-  // 잠금 풀기
-  lock = 0;
-  printf("current_cache_size = %d\n", current_cache_size);
-
+  wirte_cache(temp_cache_size, request_uri, response_buf);
   Close(server_fd);
 }
 
@@ -336,4 +318,39 @@ void cache_hit(int client_fd, cache_node *cache)
 
   Rio_writen(client_fd, cache->cache_buff, cache->len);
   cache->count = (cache->count) + 1;
+}
+
+void wirte_cache(int temp_cache_size, char *request_uri, char *response_buf)
+{
+  // 잠금
+  splinlock_lock();
+
+  if (current_cache_size + temp_cache_size <= MAX_OBJECT_SIZE)
+  {
+    current_cache_size += add_first_node(root, request_uri, response_buf, temp_cache_size);
+  }
+  else if (temp_cache_size <= MAX_OBJECT_SIZE)
+  {
+    do
+    {
+      int target = find_delete_node_index(root);
+      int del_size = delete_node(root, target);
+      current_cache_size -= del_size;
+    } while (current_cache_size + temp_cache_size > MAX_OBJECT_SIZE);
+  }
+  // 잠금 풀기
+  splinlock_unlock();
+
+  printf("current_cache_size = %d\n", current_cache_size);
+}
+
+void splinlock_lock()
+{
+  while (__sync_lock_test_and_set(&lock, 1) == 1)
+    ;
+}
+
+void splinlock_unlock()
+{
+  lock = 0;
 }
