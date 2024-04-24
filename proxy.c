@@ -56,7 +56,7 @@ int main(int argc, char **argv)
     exit(1);
   }
   root = init_list();
-
+  signal(SIGPIPE, SIG_IGN); /// 시그널 무시 중요하다
   listenfd = Open_listenfd(argv[1]);
   while (1)
   {
@@ -115,7 +115,7 @@ void proxy_to_server(int client_fd)
     return;
   }
 
-  /*
+  /*w
    캐시 미스 날 경우 서버로 요청 + 캐시버퍼에 쓰기할때는 spin lock 걸어서 한명만 쓸수있게
   */
   server_fd = Open_clientfd(server_IP, server_port);
@@ -352,7 +352,7 @@ int porxy_to_client(int server_fd, int client_fd, char *response_buf)
   int total_bytes = 0;
   while ((n = Rio_readn(server_fd, response_buf, MAX_CACHE_SIZE)) > 0)
   {
-    Rio_writen(client_fd, response_buf, n);
+    rio_writen(client_fd, response_buf, n);
     total_bytes += n;
   }
   printf("temp cache size: %d\n", total_bytes);
