@@ -21,6 +21,7 @@ typedef struct cache_node
 
 int current_cache_size = 0;
 struct cache_node *root;
+volatile int lock = 0;
 
 // -- 함수들 -- //
 int parse_uri(char *uri, char *hostname, char *path, char *port);
@@ -128,12 +129,8 @@ void proxy_to_server(int client_fd)
     Rio_readlineb(&rio, request_buf, MAXLINE);
     Rio_writen(server_fd, request_buf, strlen(request_buf));
   }
-  // 일단 여기가지 서버요청에 요청 쌉가능 이제 서버가 보내준걸 받기만하면됨!
 
-  // 서버로부터 응답을 받아 클라이언트로 전달
-
-  // 일단 서버로 응답요청을 했다는것은... 캐시에 없을경우임
-  // 이경우 나는 받은 캐시사이즈랑 현재 캐시 사이즈랑 비교해서 -> 현재 캐시 사이즈가 더 크다면
+  // --- 캐시 미스 날 경우 서버로 요청 + spin lock 걸어서 한명만 쓸수있게--- //
   int n;
   int total_bytes = 0;
   while ((n = Rio_readn(server_fd, response_buf, MAX_CACHE_SIZE)) > 0)
@@ -142,10 +139,11 @@ void proxy_to_server(int client_fd)
     temp_cache_size += n;
     total_bytes += n;
   }
-
   printf("total_bytes: %d\n", total_bytes);
 
-  // 만족하면 더하면됨 어디에 ? 헤드에...일단 쓰기 lock거는건 나중에 구현
+  // 스핀락을 걸어서 쓰기작업 쓰레드 하나만
+  while (__sync_lock_test_and_set(&lock, 1) == 1)
+    ;
   if (current_cache_size + temp_cache_size <= MAX_OBJECT_SIZE)
   {
     current_cache_size += add_first_node(root, request_uri, response_buf, total_bytes);
@@ -159,7 +157,10 @@ void proxy_to_server(int client_fd)
       current_cache_size -= del_size;
     } while (current_cache_size + temp_cache_size > MAX_OBJECT_SIZE);
   }
+  // 잠금 풀기
+  lock = 0;
   printf("current_cache_size = %d\n", current_cache_size);
+
   Close(server_fd);
 }
 
