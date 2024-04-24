@@ -26,6 +26,7 @@ volatile int lock = 0;
 // -- 함수들 -- //
 int parse_uri(char *uri, char *hostname, char *path, char *port);
 void proxy_to_server(int server_fd);
+void connect_to_server(rio_t rio, int server_fd, char *client_method, char *request_uri);
 void *thread(void *);
 
 cache_node *init_list();
@@ -83,7 +84,6 @@ void proxy_to_server(int client_fd)
   char server_port[MAXLINE];
   char request_uri[MAXLINE];
 
-  char request_buf[MAXLINE];
   char response_buf[MAX_CACHE_SIZE];
 
   /* 캐시 */
@@ -107,7 +107,6 @@ void proxy_to_server(int client_fd)
     printf("Failed to parse URI\n");
     return;
   }
-  printf("ip : %s \nport : %s \nrequest_uri : %s\n", server_IP, server_port, request_uri);
 
   // 캐시 히트인경우
   if ((cache = find_node_uri(root, request_uri)) != NULL)
@@ -116,28 +115,20 @@ void proxy_to_server(int client_fd)
     return;
   }
 
-  // --- 캐시 미스 날 경우 서버로 요청 + 캐시버퍼에 쓰기할때는 spin lock 걸어서 한명만 쓸수있게--- //
+  /*
+   캐시 미스 날 경우 서버로 요청 + 캐시버퍼에 쓰기할때는 spin lock 걸어서 한명만 쓸수있게
+  */
   server_fd = Open_clientfd(server_IP, server_port);
-  snprintf(request_buf, MAXLINE, "%s %s HTTP/1.0\r\n:", client_method, request_uri);
-  printf("request_line : %s \n\n", request_buf);
-  Rio_writen(server_fd, request_buf, strlen(request_buf));
-  while (strcmp(request_buf, "\r\n"))
-  {
-    Rio_readlineb(&rio, request_buf, MAXLINE);
-    Rio_writen(server_fd, request_buf, strlen(request_buf));
-  }
 
-  int n;
-  int total_bytes = 0;
-  while ((n = Rio_readn(server_fd, response_buf, MAX_CACHE_SIZE)) > 0)
-  {
-    Rio_writen(client_fd, response_buf, n);
-    temp_cache_size += n;
-  }
-  printf("total_bytes: %d\n", temp_cache_size);
+  // 클라이언트에서 온 요청을 들고 서버와 연결
+  connect_to_server(rio, server_fd, client_method, request_uri);
 
-  // 스핀락을 걸어서 쓰기작업 쓰레드 하나만
+  // 서버로부터 받은 response 클라이언트로 전달.
+  temp_cache_size = porxy_to_client(server_fd, client_fd, response_buf);
+
+  // 스핀락을 걸어서 캐시 쓰기작업 쓰레드 하나만
   wirte_cache(temp_cache_size, request_uri, response_buf);
+
   Close(server_fd);
 }
 
@@ -173,7 +164,7 @@ int parse_uri(char *uri, char *hostname, char *path, char *port)
   }
   else
     strcpy(port, "80"); // 포트 정보가 없으면 기본값 "80"으로 설정
-
+  printf("ip : %s \nport : %s \nrequest_uri : %s\n", hostname, port, path);
   return 0;
 }
 
@@ -353,4 +344,30 @@ void splinlock_lock()
 void splinlock_unlock()
 {
   lock = 0;
+}
+
+int porxy_to_client(int server_fd, int client_fd, char *response_buf)
+{
+  int n;
+  int total_bytes = 0;
+  while ((n = Rio_readn(server_fd, response_buf, MAX_CACHE_SIZE)) > 0)
+  {
+    Rio_writen(client_fd, response_buf, n);
+    total_bytes += n;
+  }
+  printf("temp cache size: %d\n", total_bytes);
+  return total_bytes;
+}
+
+void connect_to_server(rio_t rio, int server_fd, char *client_method, char *request_uri)
+{
+  char request_buf[MAXLINE];
+  snprintf(request_buf, MAXLINE, "%s %s HTTP/1.0\r\n:", client_method, request_uri);
+  printf("request_line : %s \n\n", request_buf);
+  Rio_writen(server_fd, request_buf, strlen(request_buf));
+  while (strcmp(request_buf, "\r\n"))
+  {
+    Rio_readlineb(&rio, request_buf, MAXLINE);
+    Rio_writen(server_fd, request_buf, strlen(request_buf));
+  }
 }
